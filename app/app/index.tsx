@@ -1,147 +1,74 @@
 // app/index.tsx
 import React, { useState } from 'react';
-import { Alert, SafeAreaView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, SafeAreaView, Alert } from 'react-native';
+import { router } from 'expo-router';
 import { theme } from '../constants/theme';
+import { supabase } from '../lib/supabase';
+import AuthInput from '../components/AuthInput';
 
 export default function LoginScreen() {
-    const [phone, setPhone] = useState('');
+    const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
+    const [loading, setLoading] = useState(false);
 
-    const handleMockLogin = () => {
-        if (!phone || !password) {
-            Alert.alert('Error', 'Por favor ingresa tu celular y contraseña.');
+    const handleLogin = async () => {
+        if (!email || !password) {
+            Alert.alert('Error', 'Ingresa tu correo y contraseña.');
             return;
         }
-        // Simulamos un login exitoso. Más adelante conectaremos esto a lib/supabase.ts
-        Alert.alert('Éxito', 'Login simulado correcto. Redirigiendo...');
-        // router.replace('/(tabs)/home'); // Descomentaremos esto cuando exista el home
+        setLoading(true);
+        const { error } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
+
+        if (error) Alert.alert('Acceso Denegado', 'Usuario no registrado o contraseña incorrecta.');
+        else Alert.alert('¡Bienvenido!', 'Conexión exitosa a Andes City.');
+
+        setLoading(false);
     };
 
     return (
-        <View style={styles.container}>
-            {/* Mitad Superior Oscura */}
-            <View style={styles.topHalf}>
-                <SafeAreaView style={styles.safeArea}>
-                    <Text style={styles.logoText}>ANDES CITY</Text>
-                    <Text style={styles.tagline}>Tu ciudad, en tiempo real</Text>
-                </SafeAreaView>
-            </View>
-
-            {/* Mitad Inferior Clara con el Formulario flotante */}
-            <View style={styles.bottomHalf}>
-                <View style={styles.formCard}>
-                    <TextInput
-                        style={styles.input}
-                        placeholder="Celular"
-                        placeholderTextColor={theme.colors.textMuted}
-                        keyboardType="phone-pad"
-                        value={phone}
-                        onChangeText={setPhone}
-                    />
-                    <TextInput
-                        style={styles.input}
-                        placeholder="Contraseña"
-                        placeholderTextColor={theme.colors.textMuted}
-                        secureTextEntry
-                        value={password}
-                        onChangeText={setPassword}
-                    />
-
-                    <TouchableOpacity style={styles.primaryButton} onPress={handleMockLogin}>
-                        <Text style={styles.primaryButtonText}>Iniciar sesión</Text>
-                    </TouchableOpacity>
-
-                    <TouchableOpacity style={styles.secondaryButton}>
-                        <Text style={styles.secondaryButtonText}>Crear cuenta</Text>
-                    </TouchableOpacity>
+        <SafeAreaView style={styles.container}>
+            <View style={styles.content}>
+                <View style={styles.header}>
+                    <Text style={styles.title}>Iniciar sesión</Text>
+                    <Text style={styles.subtitle}>Bienvenido de vuelta a Andes City</Text>
                 </View>
+
+                <AuthInput
+                    label="Correo electrónico"
+                    placeholder="tucorreo@ejemplo.com"
+                    value={email}
+                    onChangeText={setEmail}
+                    keyboardType="email-address"
+                    autoCapitalize="none"
+                />
+                <AuthInput
+                    label="Contraseña"
+                    placeholder="••••••••"
+                    value={password}
+                    onChangeText={setPassword}
+                    secureTextEntry
+                />
+
+                <TouchableOpacity style={styles.primaryButton} onPress={handleLogin} disabled={loading}>
+                    <Text style={styles.primaryButtonText}>{loading ? 'Conectando...' : 'Entrar'}</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity style={styles.switchButton} onPress={() => router.push('/register' as any)}>
+                    <Text style={styles.switchButtonText}>¿No tienes cuenta? Regístrate aquí</Text>
+                </TouchableOpacity>
             </View>
-        </View>
+        </SafeAreaView>
     );
 }
 
 const styles = StyleSheet.create({
-    container: {
-        flex: 1,
-        backgroundColor: theme.colors.background,
-    },
-    topHalf: {
-        flex: 0.4, // Ocupa el 40% superior
-        backgroundColor: theme.colors.dark,
-        justifyContent: 'center',
-        alignItems: 'center',
-    },
-    safeArea: {
-        alignItems: 'center',
-    },
-    logoText: {
-        color: '#FFFFFF',
-        fontSize: 32,
-        fontWeight: theme.typography.weights.medium as any,
-        letterSpacing: 2,
-    },
-    tagline: {
-        color: theme.colors.textMuted,
-        fontSize: 13,
-        marginTop: 8,
-    },
-    bottomHalf: {
-        flex: 0.6,
-        backgroundColor: theme.colors.background,
-        alignItems: 'center',
-        paddingTop: 40, // Espacio para que la tarjeta "suba" visualmente si quisiéramos
-    },
-    formCard: {
-        backgroundColor: '#FFFFFF',
-        width: '85%',
-        borderRadius: theme.layout.borderRadius,
-        padding: 24,
-        borderColor: theme.colors.border,
-        borderWidth: 1,
-        // Sombra sutil
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.05,
-        shadowRadius: 4,
-        elevation: 2,
-        marginTop: -60, // Hace que la tarjeta flote sobre la división oscuro/claro
-    },
-    input: {
-        height: 50,
-        backgroundColor: theme.colors.background,
-        borderRadius: theme.layout.borderRadius,
-        paddingHorizontal: 16,
-        marginBottom: 16,
-        fontSize: 16,
-        color: theme.colors.dark,
-        borderColor: theme.colors.border,
-        borderWidth: 1,
-    },
-    primaryButton: {
-        backgroundColor: theme.colors.primary,
-        height: 48,
-        borderRadius: theme.layout.buttonRadius,
-        justifyContent: 'center',
-        alignItems: 'center',
-        marginTop: 8,
-    },
-    primaryButtonText: {
-        color: '#FFFFFF',
-        fontSize: 16,
-        fontWeight: theme.typography.weights.medium as any,
-    },
-    secondaryButton: {
-        height: 48,
-        borderRadius: theme.layout.buttonRadius,
-        justifyContent: 'center',
-        alignItems: 'center',
-        marginTop: 12,
-        borderColor: theme.colors.primary,
-        borderWidth: 1,
-    },
-    secondaryButtonText: {
-        color: theme.colors.primary,
-        fontSize: 16,
-        fontWeight: theme.typography.weights.medium as any,
-    }
+    container: { flex: 1, backgroundColor: theme.colors.background, justifyContent: 'center' },
+    content: { padding: 24 },
+    header: { alignItems: 'center', marginBottom: 32 },
+    title: { fontSize: 24, fontWeight: 'bold', color: theme.colors.dark },
+    subtitle: { fontSize: 14, color: theme.colors.textMuted, marginTop: 4 },
+    primaryButton: { backgroundColor: theme.colors.primary, height: 50, borderRadius: 8, justifyContent: 'center', alignItems: 'center', marginTop: 10 },
+    primaryButtonText: { color: '#FFFFFF', fontSize: 16, fontWeight: '600' },
+    switchButton: { marginTop: 24, alignItems: 'center' },
+    switchButtonText: { color: theme.colors.textMuted, fontSize: 14 }
 });
