@@ -36,8 +36,8 @@ export default function LoginScreen() {
             // 4. Si Supabase devuelve error (Usuario no encontrado o clave mal), mostramos texto rojo
             setErrorMsg('Usuario no encontrado o credenciales incorrectas.');
         } else {
-            // 5. ¡Éxito! Redirigimos al Dashboard (Borraremos as any cuando creemos home)
-            router.replace('/home' as any);
+            // 5. ¡Éxito! Redirigimos al Dashboard del nuevo sistema de Tabs
+            router.replace('/(tabs)' as any);
         }
 
         setLoading(false);

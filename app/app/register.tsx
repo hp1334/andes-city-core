@@ -252,7 +252,7 @@ export default function RegisterScreen() {
                             maxLength={selectedCountry.length + 3}
                         />
                     </View>
-                    <Text style={styles.helpText}>Ingresa el número sin el '0' inicial.</Text>
+                    <Text style={styles.helpText}>Ingresa el número sin el &apos;0&apos; inicial.</Text>
                 </View>
 
                 <AuthInput label="Contraseña" placeholder="••••••••" value={password} onChangeText={(t) => { setPassword(t); clearMainError(); }} secureTextEntry mandatory />
