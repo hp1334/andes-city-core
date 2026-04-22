@@ -52,10 +52,15 @@ export default function FloatingBusDock({ isVisible, routes, selectedRoute, onRo
     }, [isVisible]);
 
     // Evitar montar clics si no es visible (optimización)
-    if (!isVisible && opacity === 0) return null;
+    if (!isVisible) {
+        // Manejamos pointerEvents dinámicos para no bloquear interfaz
+    }
 
     return (
-        <Animated.View style={[styles.container, { transform: [{ translateY }], opacity }]}>
+        <Animated.View 
+            style={[styles.container, { transform: [{ translateY }], opacity }]}
+            pointerEvents={isVisible ? "auto" : "none"}
+        >
             {/* Header / Título Marketing */}
             <View style={styles.header}>
                 <View style={styles.titleWrapper}>
@@ -86,18 +91,12 @@ export default function FloatingBusDock({ isVisible, routes, selectedRoute, onRo
                             {/* Color Dot + Info */}
                             <View style={styles.cardInfo}>
                                 <View style={[styles.dot, { backgroundColor: isActive ? route.color : '#CBD5E1' }]} />
-                                <Text style={[styles.routeName, isActive && { color: '#0F172A', fontWeight: '700' }]}>
-                                    {route.name}
+                                <Text style={[styles.routeName, isActive && { color: '#0F172A', fontWeight: '700' }]} numberOfLines={1}>
+                                    {route.id} {route.name}
                                 </Text>
                             </View>
 
-                            {/* Badge de Buses si aplica, o Status */}
-                            <View style={[styles.statusBadge, isActive && { backgroundColor: `${route.color}15` }]}>
-                                <BusFront size={14} color={isActive ? route.color : '#94A3B8'} />
-                                <Text style={[styles.statusText, isActive && { color: route.color }]}>
-                                    {route.activeBuses} unds.
-                                </Text>
-                            </View>
+                            {/* Badge oculto para ahorrar espacio o en tooltip. Se quita statusText */}
                         </TouchableOpacity>
                     );
                 })}
@@ -109,10 +108,10 @@ export default function FloatingBusDock({ isVisible, routes, selectedRoute, onRo
 const styles = StyleSheet.create({
     container: {
         position: 'absolute',
-        bottom: Platform.OS === 'ios' ? 120 : 100,
+        top: '30%', // Centrado de la pantalla
         alignSelf: 'center',
         width: width - 32, // Margen general de 16px por lado
-        maxHeight: 280,
+        maxHeight: 340, // Un poco más alto al estar en el centro
         backgroundColor: 'rgba(255, 255, 255, 0.95)',
         borderRadius: 24,
         paddingTop: 20,
@@ -122,7 +121,7 @@ const styles = StyleSheet.create({
         shadowOpacity: 0.15,
         shadowRadius: 24,
         elevation: 8,
-        zIndex: 60, // Superior a otros menús inferiores
+        zIndex: 250, // Superior a AuroraFAB
         borderWidth: 1,
         borderColor: 'rgba(255, 255, 255, 0.5)',
     },
@@ -152,24 +151,27 @@ const styles = StyleSheet.create({
     },
     scrollContent: {
         paddingHorizontal: 16,
+        flexDirection: 'row',
+        flexWrap: 'wrap',
         gap: 8,
+        justifyContent: 'center',
     },
     card: {
         flexDirection: 'row',
         alignItems: 'center',
-        justifyContent: 'space-between',
-        paddingVertical: 12,
-        paddingHorizontal: 14,
-        borderRadius: 16,
+        paddingVertical: 10,
+        paddingHorizontal: 12,
+        borderRadius: 20, 
         borderWidth: 1.5,
         backgroundColor: '#FFFFFF',
+        width: '47%', // Caben 2 por fila, da espacio para el texto "L04 Terminal"
+        minWidth: 120,
     },
     cardInactive: {
         borderColor: '#E2E8F0',
         backgroundColor: '#F8FAFC',
     },
     cardActive: {
-        // Color por defecto si falla el prop dinamico
         borderColor: '#0EA5E9',
         backgroundColor: '#FFFFFF',
         shadowColor: '#000',
@@ -181,32 +183,19 @@ const styles = StyleSheet.create({
     cardInfo: {
         flexDirection: 'row',
         alignItems: 'center',
-        gap: 10,
+        justifyContent: 'flex-start',
+        gap: 8,
         flex: 1,
     },
     dot: {
-        width: 12,
-        height: 12,
-        borderRadius: 6,
+        width: 10,
+        height: 10,
+        borderRadius: 5,
     },
     routeName: {
-        fontSize: 14,
+        fontSize: 12,
         fontWeight: '600',
         color: '#475569',
-        flexShrink: 1,
+        flexShrink: 1, // Para que numberOfLines funcione si texto es super largo
     },
-    statusBadge: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 4,
-        backgroundColor: '#F1F5F9',
-        paddingHorizontal: 8,
-        paddingVertical: 4,
-        borderRadius: 8,
-    },
-    statusText: {
-        fontSize: 12,
-        fontWeight: '700',
-        color: '#94A3B8',
-    }
 });

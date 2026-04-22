@@ -2,7 +2,7 @@
 // Estado global de capas del mapa — regla: máximo 2 activas simultáneamente
 import { useState, useCallback, useRef } from 'react';
 
-export type LayerName = 'ciudadano' | 'local' | 'movilidad' | 'clima';
+export type LayerName = 'ciudadano' | 'local' | 'movilidad';
 
 export interface LayerConfig {
     name: LayerName;
@@ -15,7 +15,6 @@ export const LAYERS: LayerConfig[] = [
     { name: 'ciudadano', label: 'Ciudadano', emoji: '🔴', color: '#EF4444' },
     { name: 'local',     label: 'Local',     emoji: '🟡', color: '#F59E0B' },
     { name: 'movilidad', label: 'Movilidad', emoji: '🔵', color: '#0EA5E9' },
-    { name: 'clima',     label: 'Clima',     emoji: '🟣', color: '#8B5CF6' },
 ];
 
 interface UseLayersReturn {

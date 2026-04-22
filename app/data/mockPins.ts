@@ -137,24 +137,11 @@ export const MOVILIDAD_PINS: MapPin[] = [
         timestamp: new Date(),
         payload: { line: 4 },
         ghostTrail: [
-            [-1.6698, -78.6478],
-            [-1.6680, -78.6490],
-            [-1.6670, -78.6505], // Estela hacia el centro
-        ]
-    },
-    {
-        id: 'm2_l4_2',
-        type: 'bus',
-        layer: 'movilidad',
-        lat: -1.6630, lng: -78.6520, // Centro
-        title: 'Línea 4 — Unidad 08',
-        description: 'En movimiento. Próxima parada: Norte.',
-        timestamp: new Date(),
-        payload: { line: 4 },
-        ghostTrail: [
-            [-1.6630, -78.6520],
-            [-1.6610, -78.6535],
-            [-1.6590, -78.6550], // Estela hacia el norte
+            // Av. Daniel León Borja -> Centro
+            [-1.6710, -78.6450], [-1.6700, -78.6465], [-1.6685, -78.6480], 
+            [-1.6670, -78.6495], [-1.6655, -78.6508], [-1.6635, -78.6525],
+            [-1.6620, -78.6540], [-1.6608, -78.6550], [-1.6595, -78.6530],
+            [-1.6580, -78.6510], [-1.6570, -78.6495] // Llegada zona universitaria
         ]
     },
     // Buses Línea 5
@@ -168,9 +155,10 @@ export const MOVILIDAD_PINS: MapPin[] = [
         timestamp: new Date(),
         payload: { line: 5 },
         ghostTrail: [
-            [-1.6600, -78.6450],
-            [-1.6620, -78.6480],
-            [-1.6650, -78.6500],
+            // 10 de Agosto (Ortogonal, eje Norte - Sur)
+            [-1.6580, -78.6580], [-1.6595, -78.6585], [-1.6610, -78.6590],
+            [-1.6630, -78.6595], [-1.6650, -78.6600], [-1.6675, -78.6605],
+            [-1.6695, -78.6610], [-1.6715, -78.6615], [-1.6730, -78.6620]
         ]
     },
     {

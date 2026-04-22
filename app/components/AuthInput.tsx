@@ -16,6 +16,7 @@ export default function AuthInput({ label, prefix, mandatory, wrapperStyle, ...p
             {/* Solo renderizamos la fila del label si el label tiene texto */}
             {label !== "" && (
                 <View style={styles.labelRow}>
+
                     <Text style={styles.label}>{label}</Text>
                     {mandatory && <Text style={styles.mandatoryStar}>*</Text>}
                 </View>
