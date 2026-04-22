@@ -1,54 +1,143 @@
 // app/(tabs)/index.tsx
 // Pantalla principal — mapa Andes City con WebView híbrida
+// Datos reales desde Supabase. Mapa vacío, limpio y en paz.
 import React, { useRef, useState, useMemo, useCallback } from 'react';
-import { StyleSheet, View, TouchableOpacity, Platform, Text, Animated, TextInput, ScrollView } from 'react-native';
+import { StyleSheet, View, TouchableOpacity, Platform, Text, Animated, TextInput } from 'react-native';
 import * as Location from 'expo-location';
 import * as Haptics from 'expo-haptics';
 import BottomSheet, { BottomSheetView } from '@gorhom/bottom-sheet';
-import { LocateFixed, MapPin as MapPinIcon, Clock, Search, Coffee, ShoppingBag, Utensils, CalendarDays, Bus } from 'lucide-react-native';
+import { LocateFixed, MapPin as MapPinIcon, Clock, Search, Coffee, ShoppingBag, Utensils, CalendarDays, Bus, BellRing } from 'lucide-react-native';
 
 const AnimatedTouchableOpacity = Animated.createAnimatedComponent(TouchableOpacity);
 
 import { useLayers } from '../../hooks/useLayers';
 import LayersMenu from '../../components/LayersMenu';
 import LayerToast from '../../components/LayerToast';
-import RouteSelectorSheet, { Route } from '../../components/RouteSelectorSheet';
 import MapWebView, { MapWebViewHandle } from '../../components/MapWebView';
-import { ALL_PINS, MapPin } from '../../data/mockPins';
+import FloatingBusDock from '../../components/FloatingBusDock';
+import { supabase } from '../../lib/supabase';
+import { BackHandler } from 'react-native';
 
-// Mocks de líneas de bus para Andes City
-const BUS_ROUTES: Route[] = [
-  { id: 'L04', name: 'Línea 4 — Terminal ↔ Norte', color: '#1eb0f0', activeBuses: 2 },
-  { id: 'L05', name: 'Línea 5 — Centro ↔ Sur', color: '#8B5CF6', activeBuses: 1 },
-];
+type OverlayState = 'search' | 'bus' | 'news' | 'details' | null;
 
 export default function HomeMapScreen() {
     const mapRef   = useRef<MapWebViewHandle>(null);
     const bottomSheetRef = useRef<BottomSheet>(null);
     const searchSheetRef = useRef<BottomSheet>(null);
-    const routeSheetRef = useRef<BottomSheet>(null); // Ref de Rutas
 
     const [locating, setLocating] = useState(false);
-    const [selectedPin, setSelectedPin] = useState<MapPin | null>(null);
-    const [selectedRoute, setSelectedRoute] = useState<string | null>(null); // BUMP UI Route
+    const [selectedRouteData, setSelectedRouteData] = useState<any | null>(null);
+    const [busRoutes, setBusRoutes] = useState<any[]>([]);
+    
+    // UI State para Docks fluidos
+    const [activeOverlay, setActiveOverlay] = useState<OverlayState>(null);
+    const [selectedRoute, setSelectedRoute] = useState<string | null>(null);
+
+    // Cache de ubicación para respuesta instantánea
+    const userLocationRef = useRef<{lat: number, lng: number} | null>(null);
 
     // ── Animaciones de rebote ──
-    const locateScale = useRef(new Animated.Value(1)).current;
-    const searchScale = useRef(new Animated.Value(1)).current;
-    const busScale = useRef(new Animated.Value(1)).current;
+    const locateScale  = useRef(new Animated.Value(1)).current;
+    const searchScale  = useRef(new Animated.Value(1)).current;
+    const busScale     = useRef(new Animated.Value(1)).current;
+
+    // ── Sistema de capas ──
+    const { activeLayers, toggleLayer, toastVisible, hideToast } = useLayers();
+
+    // ── Carga de rutas desde Supabase ──
+    React.useEffect(() => {
+        async function fetchRoutes() {
+            try {
+                const { data, error } = await supabase
+                    .from('mobility_routes')
+                    .select('*');
+                if (error) {
+                    console.warn('[Routes] Error Supabase:', error.message);
+                    return;
+                }
+                setBusRoutes(data || []);
+            } catch (err) {
+                console.warn('[Routes] Error de conexión:', err);
+            }
+        }
+        fetchRoutes();
+    }, []);
+
+    // ── Control Unificado de Pantallas Flotantes (Fluidez BUMP) ──
+    const switchOverlay = useCallback((newOverlay: OverlayState) => {
+        if (activeOverlay === newOverlay) {
+            setActiveOverlay(null);
+            if (newOverlay === 'search') searchSheetRef.current?.close();
+            if (newOverlay === 'details') bottomSheetRef.current?.close();
+        } else {
+            if (activeOverlay === 'search') searchSheetRef.current?.close();
+            if (activeOverlay === 'details') bottomSheetRef.current?.close();
+            setActiveOverlay(newOverlay);
+            if (newOverlay === 'search') searchSheetRef.current?.expand();
+        }
+    }, [activeOverlay]);
+
+    // Hardware Back Android Nativo
+    React.useEffect(() => {
+        const backAction = () => {
+            if (activeOverlay) { switchOverlay(activeOverlay); return true; }
+            if (selectedRoute) { setSelectedRoute(null); return true; }
+            return false;
+        };
+        const sub = BackHandler.addEventListener('hardwareBackPress', backAction);
+        return () => sub.remove();
+    }, [activeOverlay, selectedRoute, switchOverlay]);
+
+    // ── Dibujar SOLO LA RUTA SELECCIONADA respetando Capa Movilidad ──
+    React.useEffect(() => {
+        if (!activeLayers.includes('movilidad') || !selectedRoute) {
+            mapRef.current?.drawRoutes(null);
+            return;
+        }
+
+        const routeObj = busRoutes.find(r => 
+            String(r.id) === String(selectedRoute) || 
+            String(r.id) === String(selectedRoute).replace('L0','').replace('L','')
+        );
+        if (routeObj && routeObj.path_coordinates) {
+             const mappedPath = Array.isArray(routeObj.path_coordinates)
+                 ? routeObj.path_coordinates.map((c: any) => {
+                     if (c && typeof c === 'object' && 'latitude' in c) return [Number(c.latitude), Number(c.longitude)];
+                     if (Array.isArray(c)) return [Number(c[0]), Number(c[1])];
+                     return null;
+                 }).filter(Boolean)
+                 : [];
+
+             if (mappedPath.length > 0) {
+                 const singleRouteToDraw = [{
+                     id: routeObj.id,
+                     name: routeObj.name,
+                     travel_time_min: routeObj.travel_time_min,
+                     path: mappedPath,
+                     color: routeObj.color || '#0ea5e9'
+                 }];
+                 mapRef.current?.drawRoutes(JSON.stringify(singleRouteToDraw));
+             } else {
+                 mapRef.current?.drawRoutes(null);
+             }
+        } else {
+             mapRef.current?.drawRoutes(null);
+        }
+    }, [busRoutes, selectedRoute, activeLayers]);
 
     // ── Rastreo GPS en tiempo real para el Puntito Azul ──
     React.useEffect(() => {
         let locationSubscription: Location.LocationSubscription | null = null;
-        
         const startTracking = async () => {
             const { status } = await Location.requestForegroundPermissionsAsync();
             if (status !== 'granted') return;
-
             locationSubscription = await Location.watchPositionAsync(
                 { accuracy: Location.Accuracy.Balanced, timeInterval: 5000, distanceInterval: 5 },
                 (location) => {
-                    mapRef.current?.updateUserLocation(location.coords.latitude, location.coords.longitude);
+                    const lat = location.coords.latitude;
+                    const lng = location.coords.longitude;
+                    userLocationRef.current = { lat, lng };
+                    mapRef.current?.updateUserLocation(lat, lng);
                 }
             );
         };
@@ -56,77 +145,53 @@ export default function HomeMapScreen() {
         return () => { locationSubscription?.remove(); };
     }, []);
 
-    // ── Sistema de capas ──
-    const { activeLayers, toggleLayer, toastVisible, hideToast } = useLayers();
-
-    // Sincronizar Selección de Rutas con el Mapa (Leaflet JS Inject)
-    React.useEffect(() => {
-        mapRef.current?.setRouteSelection(selectedRoute);
-    }, [selectedRoute]);
-
-    // ── Pines filtrados (Capas + Ruta Activa Independiente) ──
-    // Los buses se filtran en JS mediante atenuación por defecto, PERO si la capa
-    // Movilidad no está activa y abriste el menú bus, inyectamos los buses directamente
-    const visiblePins = useMemo(() => {
-        let basePins = ALL_PINS.filter(pin => activeLayers.includes(pin.layer));
-        
-        if (selectedRoute) {
-            const lineNum = Number(selectedRoute.replace('L0', '').replace('L', ''));
-            const rutaPins = ALL_PINS.filter(p => p.type === 'bus' && p.payload?.line === lineNum);
-            
-            // Añadir pines de la ruta si no estaban ya por la capa "movilidad"
-            rutaPins.forEach(p => {
-                if (!basePins.find(bp => bp.id === p.id)) {
-                    basePins.push(p);
-                }
-            });
-        }
-        return basePins;
-    }, [activeLayers, selectedRoute]);
-
-    // ── Actualizar pines cuando cambian las capas ──
-    const handleMapReady = useCallback(() => {
-        mapRef.current?.setPins(visiblePins);
-    }, [visiblePins]);
-
-    // ── Ir a mi ubicación actual (con Feedback instantáneo) ──
+    // ── Ir a mi ubicación actual ──
     const handleLocatePress = () => {
-        // Interacción táctil inmediata y animación de rebote
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
         Animated.sequence([
             Animated.timing(locateScale, { toValue: 0.8, duration: 80, useNativeDriver: true }),
             Animated.spring(locateScale, { toValue: 1, friction: 3, tension: 40, useNativeDriver: true })
         ]).start();
-        
         goToMyLocation();
     };
 
     const goToMyLocation = async () => {
         if (locating) return;
         setLocating(true);
+        if (userLocationRef.current) {
+            mapRef.current?.flyTo(userLocationRef.current.lat, userLocationRef.current.lng, 16);
+            setTimeout(() => setLocating(false), 600);
+            return;
+        }
         try {
             const { status } = await Location.requestForegroundPermissionsAsync();
             if (status !== 'granted') { setLocating(false); return; }
-            const pos = await Location.getCurrentPositionAsync({
-                accuracy: Location.Accuracy.Balanced,
-            });
-            mapRef.current?.flyTo(pos.coords.latitude, pos.coords.longitude, 16);
+            let pos = await Location.getLastKnownPositionAsync();
+            if (!pos) {
+                pos = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Low });
+            }
+            if (pos) {
+                const lat = pos.coords.latitude;
+                const lng = pos.coords.longitude;
+                userLocationRef.current = { lat, lng };
+                mapRef.current?.updateUserLocation(lat, lng);
+                mapRef.current?.flyTo(lat, lng, 16);
+            }
         } catch (e) {
             console.warn('Ubicación no disponible:', e);
         } finally {
-            setLocating(false);
+            setTimeout(() => setLocating(false), 600);
         }
     };
 
-    // ── Pin tocado → PASO 4: Bottom Sheet ──
-    const handlePinPress = (pinId: string) => {
-        const pin = ALL_PINS.find(p => p.id === pinId);
-        if (pin) {
-            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-            setSelectedPin(pin);
-            bottomSheetRef.current?.expand(); // Abre la hoja
-            mapRef.current?.flyTo(pin.lat - 0.001, pin.lng, 16); // Centra sutilmente más abajo del centro
-        }
+    const handleMapReady = useCallback(() => {
+        // El mapa inicia vacío de pines — paz visual.
+    }, []);
+
+    const handleRoutePress = (routeData: any) => {
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+        setSelectedRouteData(routeData);
+        bottomSheetRef.current?.expand();
     };
 
     return (
@@ -135,8 +200,7 @@ export default function HomeMapScreen() {
             {/* ── Mapa WebView a pantalla completa ── */}
             <MapWebView
                 ref={mapRef}
-                pins={visiblePins}
-                onPinPress={handlePinPress}
+                onRoutePress={handleRoutePress}
                 onMapReady={handleMapReady}
             />
 
@@ -150,23 +214,25 @@ export default function HomeMapScreen() {
                 topOffset={Platform.OS === 'ios' ? 112 : 96}
             />
 
-            {/* ── Botón Menú Buses (Independiente) ── */}
-            <AnimatedTouchableOpacity
-                style={[styles.busBtn, { transform: [{ scale: busScale }] }]}
-                activeOpacity={0.85}
-                onPress={() => {
-                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                    Animated.sequence([
-                        Animated.timing(busScale, { toValue: 0.85, duration: 80, useNativeDriver: true }),
-                        Animated.spring(busScale, { toValue: 1, friction: 4, useNativeDriver: true })
-                    ]).start();
-                    routeSheetRef.current?.expand();
-                }}
-            >
-                <Bus size={20} color="#0EA5E9" strokeWidth={2.5} />
-            </AnimatedTouchableOpacity>
+            {/* ── Botón Menú Buses (Solo si Capa Movilidad está activa) ── */}
+            {activeLayers.includes('movilidad') && (
+                <AnimatedTouchableOpacity
+                    style={[styles.busBtn, { transform: [{ scale: busScale }] }, activeOverlay === 'bus' && styles.busBtnActive]}
+                    activeOpacity={0.85}
+                    onPress={() => {
+                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                        Animated.sequence([
+                            Animated.timing(busScale, { toValue: 0.85, duration: 80, useNativeDriver: true }),
+                            Animated.spring(busScale, { toValue: 1, friction: 4, useNativeDriver: true })
+                        ]).start();
+                        switchOverlay('bus');
+                    }}
+                >
+                    <Bus size={20} color={activeOverlay === 'bus' ? '#FFFFFF' : '#0EA5E9'} strokeWidth={2.5} />
+                </AnimatedTouchableOpacity>
+            )}
 
-            {/* ── Botón de Búsqueda (Izquierda) ── */}
+            {/* ── Botón de Búsqueda (Izquierda abajo) ── */}
             <AnimatedTouchableOpacity
                 style={[styles.searchBtn, { transform: [{ scale: searchScale }] }]}
                 activeOpacity={0.85}
@@ -176,13 +242,13 @@ export default function HomeMapScreen() {
                         Animated.timing(searchScale, { toValue: 0.85, duration: 80, useNativeDriver: true }),
                         Animated.spring(searchScale, { toValue: 1, friction: 4, useNativeDriver: true })
                     ]).start();
-                    searchSheetRef.current?.expand(); // Abre el menú de búsqueda
+                    switchOverlay('search');
                 }}
             >
                 <Search size={22} color="#0F172A" strokeWidth={2.5} />
             </AnimatedTouchableOpacity>
 
-            {/* ── Botón de Ubicación Actual (Derecha) ── */}
+            {/* ── Botón de Ubicación Actual (Derecha abajo) ── */}
             <AnimatedTouchableOpacity
                 style={[styles.locateBtn, locating && styles.locateBtnActive, { transform: [{ scale: locateScale }] }]}
                 onPress={handleLocatePress}
@@ -195,36 +261,42 @@ export default function HomeMapScreen() {
                 />
             </AnimatedTouchableOpacity>
 
-            {/* ── Bottom Sheet (Dashboard Flotante BUMP) ── */}
+            {/* ── Bottom Sheet para info de ruta tocada ── */}
             <BottomSheet
                 ref={bottomSheetRef}
-                index={-1} /* Oculto por defecto */
+                index={-1}
                 snapPoints={['30%', '45%']}
                 enablePanDownToClose={true}
                 backgroundStyle={styles.sheetBackground}
                 handleIndicatorStyle={styles.sheetIndicator}
                 onChange={(index) => {
-                    if (index === -1) setSelectedPin(null);
+                    if (index === -1) setSelectedRouteData(null);
                 }}
             >
                 <BottomSheetView style={styles.sheetContainer}>
-                    {selectedPin ? (
+                    {selectedRouteData ? (
                         <View style={styles.sheetContent}>
                             <View style={styles.sheetHeader}>
-                                <View style={styles.sheetIconWrapper}>
-                                    <MapPinIcon size={24} color="#0EA5E9" />
+                                <View style={[styles.sheetIconWrapper, { backgroundColor: (selectedRouteData.color || '#0EA5E9') + '20' }]}>
+                                    <Bus size={24} color={selectedRouteData.color || '#0EA5E9'} />
                                 </View>
                                 <View style={styles.sheetTexts}>
-                                    <Text style={styles.sheetTitle}>{selectedPin.title}</Text>
-                                    <Text style={styles.sheetType}>Categoria: {selectedPin.type}</Text>
+                                    <Text style={styles.sheetTitle}>Línea {selectedRouteData.name}</Text>
+                                    <Text style={styles.sheetType}>Estado: Activo</Text>
                                 </View>
                             </View>
-                            
-                            {/* Layout Ficticio de Datos BUMP */}
                             <View style={styles.sheetStatsCard}>
                                 <Clock size={16} color="#64748B" />
-                                <Text style={styles.sheetStatText}>Actualizado hace 2 min</Text>
+                                <Text style={styles.sheetStatText}>
+                                    Tiempo de recorrido: {selectedRouteData.travel_time_min} min
+                                </Text>
                             </View>
+                            <TouchableOpacity
+                                style={[styles.closeRouteBtn, { marginTop: 16 }]}
+                                onPress={() => bottomSheetRef.current?.close()}
+                            >
+                                <Text style={styles.closeRouteBtnText}>Cerrar</Text>
+                            </TouchableOpacity>
                         </View>
                     ) : (
                         <Text style={styles.sheetTitle}>Cargando...</Text>
@@ -232,11 +304,11 @@ export default function HomeMapScreen() {
                 </BottomSheetView>
             </BottomSheet>
 
-            {/* ── Search Menu (Bottom Sheet de Búsqueda) ── */}
+            {/* ── Search Menu ── */}
             <BottomSheet
                 ref={searchSheetRef}
                 index={-1}
-                snapPoints={['50%', '85%']}
+                snapPoints={['85%']}
                 enablePanDownToClose={true}
                 backgroundStyle={styles.sheetBackground}
                 handleIndicatorStyle={styles.sheetIndicator}
@@ -246,8 +318,8 @@ export default function HomeMapScreen() {
                     <View style={styles.searchHeaderWrapper}>
                         <View style={styles.searchInputContainer}>
                             <Search size={22} color="#64748B" />
-                            <TextInput 
-                                placeholder="Buscar lugares, restaurantes..." 
+                            <TextInput
+                                placeholder="Buscar lugares, restaurantes..."
                                 placeholderTextColor="#94A3B8"
                                 style={styles.searchInput}
                                 autoCapitalize="none"
@@ -285,15 +357,18 @@ export default function HomeMapScreen() {
                 </BottomSheetView>
             </BottomSheet>
 
-            {/* ── Route Selector (Bottom Sheet de Movilidad Avanzada) ── */}
-            <RouteSelectorSheet
-                sheetRef={routeSheetRef}
-                routes={BUS_ROUTES}
+            {/* ── Floating Bus Dock ("Tu Guía Bus") ── */}
+            <FloatingBusDock
+                isVisible={activeOverlay === 'bus' && activeLayers.includes('movilidad')}
+                routes={busRoutes as any}
                 selectedRoute={selectedRoute}
-                onRouteSelect={(routeId) => setSelectedRoute(prev => prev === routeId ? null : routeId)}
-                onDismiss={() => {
-                    // El usuario pidió colapsar SIN deseleccionar la ruta.
-                    // React Native colapsa visualmente porque el sheet tiene snapPoint 72px base, pero mantenemos el estado.
+                onRouteSelect={(routeId) => {
+                    const isNewSelection = selectedRoute !== routeId;
+                    setSelectedRoute(isNewSelection ? routeId : null);
+                    // Ocultar dock si selecciona para ver ruta limpia
+                    if (isNewSelection) {
+                        switchOverlay(null);
+                    }
                 }}
             />
 
@@ -302,12 +377,12 @@ export default function HomeMapScreen() {
 }
 
 const styles = StyleSheet.create({
-    container: { flex: 1, backgroundColor: '#1E293B' }, // Fondo gris oscuro pre-WebView
+    container: { flex: 1, backgroundColor: '#1E293B' },
     locateBtn: {
         position: 'absolute',
-        bottom: Platform.OS === 'ios' ? 160 : 140, // Subido alejándose de los spots
+        bottom: Platform.OS === 'ios' ? 160 : 140,
         right: 20,
-        width: 52, // Más grande para mejor touch
+        width: 52,
         height: 52,
         borderRadius: 26,
         backgroundColor: 'rgba(255, 255, 255, 0.95)',
@@ -321,10 +396,9 @@ const styles = StyleSheet.create({
         zIndex: 50,
     },
     locateBtnActive: { backgroundColor: '#0EA5E9' },
-    
     searchBtn: {
         position: 'absolute',
-        bottom: Platform.OS === 'ios' ? 160 : 140, // Alineado con locateBtn
+        bottom: Platform.OS === 'ios' ? 160 : 140,
         left: 20,
         width: 52,
         height: 52,
@@ -339,8 +413,6 @@ const styles = StyleSheet.create({
         elevation: 8,
         zIndex: 50,
     },
-    
-    /* ── Botón Flotante de Autobuses (Izquierda, abajo de capas) ── */
     busBtn: {
         position: 'absolute',
         top: Platform.OS === 'ios' ? 164 : 148,
@@ -360,8 +432,10 @@ const styles = StyleSheet.create({
         borderWidth: 1.5,
         borderColor: 'rgba(14, 165, 233, 0.1)',
     },
-
-    /* ── Estilos Premium del Bottom Sheet ── */
+    busBtnActive: {
+        backgroundColor: '#0EA5E9',
+        borderColor: '#0EA5E9',
+    },
     sheetBackground: {
         backgroundColor: '#FFFFFF',
         borderRadius: 24,
@@ -380,9 +454,7 @@ const styles = StyleSheet.create({
         paddingHorizontal: 24,
         paddingTop: 8,
     },
-    sheetContent: {
-        flex: 1,
-    },
+    sheetContent: { flex: 1 },
     sheetHeader: {
         flexDirection: 'row',
         alignItems: 'center',
@@ -397,9 +469,7 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         marginRight: 16,
     },
-    sheetTexts: {
-        flex: 1,
-    },
+    sheetTexts: { flex: 1 },
     sheetTitle: {
         fontSize: 20,
         fontWeight: '700',
@@ -410,7 +480,6 @@ const styles = StyleSheet.create({
         fontSize: 14,
         fontWeight: '500',
         color: '#64748B',
-        textTransform: 'capitalize',
     },
     sheetStatsCard: {
         flexDirection: 'row',
@@ -425,8 +494,17 @@ const styles = StyleSheet.create({
         marginLeft: 8,
         fontWeight: '500',
     },
-    
-    /* ── Estilos del Panel de Búsqueda ── */
+    closeRouteBtn: {
+        backgroundColor: '#F1F5F9',
+        paddingVertical: 12,
+        borderRadius: 12,
+        alignItems: 'center',
+    },
+    closeRouteBtnText: {
+        fontSize: 15,
+        fontWeight: '600',
+        color: '#64748B',
+    },
     searchHeaderWrapper: {
         marginBottom: 24,
         marginTop: 8,
@@ -434,7 +512,7 @@ const styles = StyleSheet.create({
     searchInputContainer: {
         flexDirection: 'row',
         alignItems: 'center',
-        backgroundColor: '#F1F5F9', // Gris claro BUMP
+        backgroundColor: '#F1F5F9',
         borderRadius: 16,
         paddingHorizontal: 16,
         height: 54,
