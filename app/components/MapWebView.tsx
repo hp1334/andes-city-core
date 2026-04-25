@@ -46,6 +46,7 @@ function buildMapHTML(): string {
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/leaflet-polylinedecorator@1.6.0/dist/leaflet.polylineDecorator.js"></script>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body { width: 100vw; height: 100vh; overflow: hidden; background: #F8FAFC; }
@@ -142,7 +143,10 @@ var map = L.map('map', {
   zoom: 14,
   zoomControl: false,
   attributionControl: false,
-  tap: false,
+  inertia: true,
+  inertiaDeceleration: 3000,
+  tap: true,
+  preferCanvas: true // Previene el bug visual de líneas desapareciendo al hacer mucho zoom
 });
 
 // CARTO Light — limpio, minimalista, estilo Zenly
@@ -184,7 +188,7 @@ function renderPins(pins) {
 
 // ── Funciones controlables desde React Native ──
 window.flyTo = function(lat, lng, zoom) {
-  map.flyTo([lat, lng], zoom || 16, { animate: true, duration: 0.6, easeLinearity: 0.1 });
+  map.flyTo([lat, lng], zoom || 16, { animate: true, duration: 0.8, easeLinearity: 0.25 });
 };
 
 window.setPins = function(pins) {
@@ -196,19 +200,67 @@ window.drawRoutes = function(routesStr) {
   if (!routesStr) return;
   try {
     var routesList = JSON.parse(routesStr);
-    routesList.forEach(function(route) {
+    
+    // Separar la activa para dibujarla al final (encima de la inactiva)
+    var inactiveRoutes = routesList.filter(r => !r.isActive);
+    var activeRoutes = routesList.filter(r => r.isActive);
+    var orderedRoutes = inactiveRoutes.concat(activeRoutes);
+
+    orderedRoutes.forEach(function(route) {
       if (route.path && route.path.length > 0) {
-        var line = L.polyline(route.path, {
+        var isMain = route.isActive;
+        
+        var lineOpts = isMain ? {
           color: route.color || '#0EA5E9',
-          weight: 4,
-          opacity: 0.9,
-          smoothFactor: 1.5,
+          weight: 6,
+          opacity: 0.95,
+          smoothFactor: 2.5,
           lineCap: 'round',
           lineJoin: 'round'
-        }).addTo(trailLayer);
+        } : {
+          color: route.color || '#0EA5E9',
+          weight: 4,
+          opacity: 0.35,
+          dashArray: '8, 12',
+          smoothFactor: 2.5,
+          lineCap: 'round',
+          lineJoin: 'round'
+        };
+
+        var line = L.polyline(route.path, lineOpts).addTo(trailLayer);
+
+        if (isMain) {
+            // Flechas direccionales integradas
+            L.polylineDecorator(line, {
+                patterns: [
+                    {
+                        offset: '5%', 
+                        repeat: '12%', 
+                        symbol: L.Symbol.arrowHead({
+                            pixelSize: 10, 
+                            polygon: false, 
+                            pathOptions: {stroke: true, weight: 2.5, color: '#FFFFFF', opacity: 0.9}
+                        })
+                    }
+                ]
+            }).addTo(trailLayer);
+            
+            // Zoom automático SOLO la primera vez que se carga la ruta
+            if (route.zoomToFit) {
+                // El menú ocupa la mitad inferior de la pantalla, así que compensamos
+                // el padding inferior para que la ruta se centre en la mitad superior visible.
+                var bottomPadding = window.innerHeight * 0.55 + 20;
+                map.fitBounds(line.getBounds(), { 
+                    paddingTopLeft: [40, 40], 
+                    paddingBottomRight: [40, bottomPadding], 
+                    maxZoom: 15, 
+                    animate: true, 
+                    duration: 0.8 
+                });
+            }
+        }
 
         line.on('click', function() {
-          map.fitBounds(line.getBounds(), { padding: [50, 50], maxZoom: 15 });
           window.ReactNativeWebView && window.ReactNativeWebView.postMessage(
             JSON.stringify({ type: 'routeTap', route: route })
           );

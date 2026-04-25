@@ -21,25 +21,27 @@ import { BackHandler } from 'react-native';
 type OverlayState = 'search' | 'bus' | 'news' | 'details' | null;
 
 export default function HomeMapScreen() {
-    const mapRef   = useRef<MapWebViewHandle>(null);
+    const mapRef = useRef<MapWebViewHandle>(null);
     const bottomSheetRef = useRef<BottomSheet>(null);
     const searchSheetRef = useRef<BottomSheet>(null);
 
     const [locating, setLocating] = useState(false);
     const [selectedRouteData, setSelectedRouteData] = useState<any | null>(null);
     const [busRoutes, setBusRoutes] = useState<any[]>([]);
-    
+
     // UI State para Docks fluidos
     const [activeOverlay, setActiveOverlay] = useState<OverlayState>(null);
-    const [selectedRoute, setSelectedRoute] = useState<string | null>(null);
+    const [selectedRouteCode, setSelectedRouteCode] = useState<string | null>(null);
+    const [selectedDirectionId, setSelectedDirectionId] = useState<number | null>(null);
 
     // Cache de ubicación para respuesta instantánea
-    const userLocationRef = useRef<{lat: number, lng: number} | null>(null);
+    const userLocationRef = useRef<{ lat: number, lng: number } | null>(null);
+    const shouldZoomRef = useRef(false);
 
     // ── Animaciones de rebote ──
-    const locateScale  = useRef(new Animated.Value(1)).current;
-    const searchScale  = useRef(new Animated.Value(1)).current;
-    const busScale     = useRef(new Animated.Value(1)).current;
+    const locateScale = useRef(new Animated.Value(1)).current;
+    const searchScale = useRef(new Animated.Value(1)).current;
+    const busScale = useRef(new Animated.Value(1)).current;
 
     // ── Sistema de capas ──
     const { activeLayers, toggleLayer, toastVisible, hideToast } = useLayers();
@@ -61,7 +63,7 @@ export default function HomeMapScreen() {
             }
         }
         fetchRoutes();
-    }, []);
+    },);
 
     // ── Control Unificado de Pantallas Flotantes (Fluidez BUMP) ──
     const switchOverlay = useCallback((newOverlay: OverlayState) => {
@@ -81,49 +83,61 @@ export default function HomeMapScreen() {
     React.useEffect(() => {
         const backAction = () => {
             if (activeOverlay) { switchOverlay(activeOverlay); return true; }
-            if (selectedRoute) { setSelectedRoute(null); return true; }
+            if (selectedRouteCode) { 
+                setSelectedRouteCode(null); 
+                setSelectedDirectionId(null); 
+                setSelectedRouteData(null);
+                bottomSheetRef.current?.close();
+                return true; 
+            }
             return false;
         };
         const sub = BackHandler.addEventListener('hardwareBackPress', backAction);
         return () => sub.remove();
-    }, [activeOverlay, selectedRoute, switchOverlay]);
+    }, [activeOverlay, selectedRouteCode, switchOverlay]);
 
-    // ── Dibujar SOLO LA RUTA SELECCIONADA respetando Capa Movilidad ──
+    // ── Dibujar AMBAS RUTAS respetando Capa Movilidad ──
     React.useEffect(() => {
-        if (!activeLayers.includes('movilidad') || !selectedRoute) {
+        if (!activeLayers.includes('movilidad') || !selectedRouteCode) {
             mapRef.current?.drawRoutes(null);
             return;
         }
 
-        const routeObj = busRoutes.find(r => 
-            String(r.id) === String(selectedRoute) || 
-            String(r.id) === String(selectedRoute).replace('L0','').replace('L','')
-        );
-        if (routeObj && routeObj.path_coordinates) {
-             const mappedPath = Array.isArray(routeObj.path_coordinates)
-                 ? routeObj.path_coordinates.map((c: any) => {
-                     if (c && typeof c === 'object' && 'latitude' in c) return [Number(c.latitude), Number(c.longitude)];
-                     if (Array.isArray(c)) return [Number(c[0]), Number(c[1])];
-                     return null;
-                 }).filter(Boolean)
-                 : [];
+        const relatedRoutes = busRoutes.filter(r => r.route_code === selectedRouteCode);
+        
+        const mapPayload = relatedRoutes.map(r => {
+            const mappedPath = Array.isArray(r.path_coordinates)
+                ? r.path_coordinates.map((c: any) => {
+                    if (c && typeof c === 'object' && 'latitude' in c) return [Number(c.latitude), Number(c.longitude)];
+                    if (Array.isArray(c)) return [Number(c[0]), Number(c[1])];
+                    return null;
+                }).filter(Boolean)
+                : [];
+                
+            return {
+                id: r.id,
+                route_code: r.route_code,
+                name: r.name,
+                direction: r.direction,
+                travel_time_min: r.baseline_time_min || r.travel_time_min,
+                path: mappedPath,
+                color: r.color || '#0ea5e9',
+                isActive: r.id === selectedDirectionId,
+                zoomToFit: shouldZoomRef.current && (r.id === selectedDirectionId)
+            };
+        }).filter(r => r.path.length > 0);
 
-             if (mappedPath.length > 0) {
-                 const singleRouteToDraw = [{
-                     id: routeObj.id,
-                     name: routeObj.name,
-                     travel_time_min: routeObj.travel_time_min,
-                     path: mappedPath,
-                     color: routeObj.color || '#0ea5e9'
-                 }];
-                 mapRef.current?.drawRoutes(JSON.stringify(singleRouteToDraw));
-             } else {
-                 mapRef.current?.drawRoutes(null);
-             }
+        if (mapPayload.length > 0) {
+            mapRef.current?.drawRoutes(JSON.stringify(mapPayload));
+            shouldZoomRef.current = false; // Solo hacer zoom la primera vez que se selecciona
+            
+            // Update bottom sheet data to show the ACTIVE direction details
+            const activeData = mapPayload.find(r => r.isActive) || mapPayload[0];
+            setSelectedRouteData(activeData);
         } else {
-             mapRef.current?.drawRoutes(null);
+            mapRef.current?.drawRoutes(null);
         }
-    }, [busRoutes, selectedRoute, activeLayers]);
+    }, [busRoutes, selectedRouteCode, selectedDirectionId, activeLayers]);
 
     // ── Rastreo GPS en tiempo real para el Puntito Azul ──
     React.useEffect(() => {
@@ -191,6 +205,8 @@ export default function HomeMapScreen() {
     const handleRoutePress = (routeData: any) => {
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
         setSelectedRouteData(routeData);
+        // Expandir el menú. Si el usuario lo ocultó (close), 
+        // tocar la ruta en el mapa es la única forma de volver a verlo.
         bottomSheetRef.current?.expand();
     };
 
@@ -265,42 +281,67 @@ export default function HomeMapScreen() {
             <BottomSheet
                 ref={bottomSheetRef}
                 index={-1}
-                snapPoints={['30%', '45%']}
+                snapPoints={['55%']} // Posición media-alta directa sin pasos intermedios
                 enablePanDownToClose={true}
                 backgroundStyle={styles.sheetBackground}
                 handleIndicatorStyle={styles.sheetIndicator}
-                onChange={(index) => {
-                    if (index === -1) setSelectedRouteData(null);
-                }}
             >
                 <BottomSheetView style={styles.sheetContainer}>
-                    {selectedRouteData ? (
+                    {selectedRouteCode && selectedRouteData ? (
                         <View style={styles.sheetContent}>
                             <View style={styles.sheetHeader}>
                                 <View style={[styles.sheetIconWrapper, { backgroundColor: (selectedRouteData.color || '#0EA5E9') + '20' }]}>
                                     <Bus size={24} color={selectedRouteData.color || '#0EA5E9'} />
                                 </View>
                                 <View style={styles.sheetTexts}>
-                                    <Text style={styles.sheetTitle}>Línea {selectedRouteData.name}</Text>
-                                    <Text style={styles.sheetType}>Estado: Activo</Text>
+                                    <Text style={styles.sheetTitle}>Línea {selectedRouteCode}</Text>
+                                    <Text style={styles.sheetType} numberOfLines={1}>{selectedRouteData.name}</Text>
                                 </View>
+                                <TouchableOpacity 
+                                    style={styles.closeHeaderBtn}
+                                    onPress={() => {
+                                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                                        // Aquí SÍ se limpia toda la ruta del mapa
+                                        setSelectedRouteCode(null);
+                                        setSelectedDirectionId(null);
+                                        setSelectedRouteData(null);
+                                        bottomSheetRef.current?.close();
+                                    }}
+                                >
+                                    <Text style={styles.closeHeaderBtnText}>✕</Text>
+                                </TouchableOpacity>
                             </View>
+
+                            {/* Selector de Sentido de Trayecto */}
+                            <Text style={styles.directionsTitle}>Sentido del recorrido:</Text>
+                            <View style={styles.directionsToggle}>
+                                {busRoutes.filter(r => r.route_code === selectedRouteCode).map(dir => (
+                                    <TouchableOpacity
+                                        key={dir.id}
+                                        activeOpacity={0.85}
+                                        style={[styles.directionBtn, selectedDirectionId === dir.id && styles.directionBtnActive]}
+                                        onPress={() => {
+                                            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                                            setSelectedDirectionId(dir.id);
+                                            // Se oculta automáticamente sin borrar la ruta del mapa
+                                            bottomSheetRef.current?.close();
+                                        }}
+                                    >
+                                        <Text style={[styles.directionBtnText, selectedDirectionId === dir.id && styles.directionBtnTextActive]}>
+                                            {dir.direction}
+                                        </Text>
+                                    </TouchableOpacity>
+                                ))}
+                            </View>
+
                             <View style={styles.sheetStatsCard}>
                                 <Clock size={16} color="#64748B" />
                                 <Text style={styles.sheetStatText}>
-                                    Tiempo de recorrido: {selectedRouteData.travel_time_min} min
+                                    Tiempo base estimado: {selectedRouteData.travel_time_min} min
                                 </Text>
                             </View>
-                            <TouchableOpacity
-                                style={[styles.closeRouteBtn, { marginTop: 16 }]}
-                                onPress={() => bottomSheetRef.current?.close()}
-                            >
-                                <Text style={styles.closeRouteBtnText}>Cerrar</Text>
-                            </TouchableOpacity>
                         </View>
-                    ) : (
-                        <Text style={styles.sheetTitle}>Cargando...</Text>
-                    )}
+                    ) : null}
                 </BottomSheetView>
             </BottomSheet>
 
@@ -361,13 +402,22 @@ export default function HomeMapScreen() {
             <FloatingBusDock
                 isVisible={activeOverlay === 'bus' && activeLayers.includes('movilidad')}
                 routes={busRoutes as any}
-                selectedRoute={selectedRoute}
-                onRouteSelect={(routeId) => {
-                    const isNewSelection = selectedRoute !== routeId;
-                    setSelectedRoute(isNewSelection ? routeId : null);
-                    // Ocultar dock si selecciona para ver ruta limpia
+                selectedRouteCode={selectedRouteCode}
+                onRouteSelect={(code) => {
+                    const isNewSelection = selectedRouteCode !== code;
                     if (isNewSelection) {
+                        shouldZoomRef.current = true; // Auto-zoom solo al abrir por primera vez
+                        setSelectedRouteCode(code);
+                        const firstDirection = busRoutes.find(r => r.route_code === code);
+                        setSelectedDirectionId(firstDirection ? firstDirection.id : null);
                         switchOverlay(null);
+                        // Desplegar directamente a su posición final (55%)
+                        bottomSheetRef.current?.expand();
+                    } else {
+                        setSelectedRouteCode(null);
+                        setSelectedDirectionId(null);
+                        setSelectedRouteData(null);
+                        bottomSheetRef.current?.close();
                     }
                 }}
             />
@@ -469,16 +519,29 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         marginRight: 16,
     },
-    sheetTexts: { flex: 1 },
+    sheetTexts: { flex: 1, marginRight: 8 },
     sheetTitle: {
         fontSize: 20,
-        fontWeight: '700',
+        fontWeight: '800',
         color: '#0F172A',
-        marginBottom: 4,
+        marginBottom: 2,
     },
     sheetType: {
-        fontSize: 14,
+        fontSize: 13,
         fontWeight: '500',
+        color: '#64748B',
+    },
+    closeHeaderBtn: {
+        width: 36,
+        height: 36,
+        borderRadius: 18,
+        backgroundColor: '#F1F5F9',
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    closeHeaderBtnText: {
+        fontSize: 16,
+        fontWeight: '600',
         color: '#64748B',
     },
     sheetStatsCard: {
@@ -493,17 +556,6 @@ const styles = StyleSheet.create({
         color: '#64748B',
         marginLeft: 8,
         fontWeight: '500',
-    },
-    closeRouteBtn: {
-        backgroundColor: '#F1F5F9',
-        paddingVertical: 12,
-        borderRadius: 12,
-        alignItems: 'center',
-    },
-    closeRouteBtnText: {
-        fontSize: 15,
-        fontWeight: '600',
-        color: '#64748B',
     },
     searchHeaderWrapper: {
         marginBottom: 24,
@@ -552,5 +604,41 @@ const styles = StyleSheet.create({
         fontSize: 13,
         fontWeight: '600',
         color: '#475569',
+    },
+    directionsTitle: {
+        fontSize: 14,
+        fontWeight: '600',
+        color: '#64748B',
+        marginBottom: 8,
+    },
+    directionsToggle: {
+        flexDirection: 'row',
+        backgroundColor: '#F1F5F9',
+        borderRadius: 12,
+        padding: 4,
+        marginBottom: 16,
+    },
+    directionBtn: {
+        flex: 1,
+        paddingVertical: 10,
+        alignItems: 'center',
+        borderRadius: 8,
+    },
+    directionBtnActive: {
+        backgroundColor: '#FFFFFF',
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.08,
+        shadowRadius: 4,
+        elevation: 3,
+    },
+    directionBtnText: {
+        fontSize: 13,
+        fontWeight: '600',
+        color: '#64748B',
+    },
+    directionBtnTextActive: {
+        color: '#0EA5E9',
+        fontWeight: '700',
     }
 });

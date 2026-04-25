@@ -9,14 +9,24 @@ const { width } = Dimensions.get('window');
 
 interface FloatingBusDockProps {
     isVisible: boolean;
-    routes: Route[];
-    selectedRoute: string | null;
-    onRouteSelect: (routeId: string) => void;
+    routes: any[];
+    selectedRouteCode: string | null;
+    onRouteSelect: (routeCode: string) => void;
 }
 
-export default function FloatingBusDock({ isVisible, routes, selectedRoute, onRouteSelect }: FloatingBusDockProps) {
+export default function FloatingBusDock({ isVisible, routes, selectedRouteCode, onRouteSelect }: FloatingBusDockProps) {
     const translateY = useRef(new Animated.Value(200)).current;
     const opacity = useRef(new Animated.Value(0)).current;
+
+    const uniqueRoutes = React.useMemo(() => {
+        const map = new Map();
+        routes.forEach(r => {
+            if (r.route_code && !map.has(r.route_code)) {
+                map.set(r.route_code, r);
+            }
+        });
+        return Array.from(map.values());
+    }, [routes]);
 
     useEffect(() => {
         if (isVisible) {
@@ -70,17 +80,17 @@ export default function FloatingBusDock({ isVisible, routes, selectedRoute, onRo
                 <Text style={styles.subtitle}>Toca una ruta para ver su recorrido en vivo</Text>
             </View>
 
-            {/* Listado de Rutas */}
+            {/* Listado de Rutas Únicas (Agrupadas por route_code) */}
             <ScrollView style={styles.scrollList} showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
-                {routes.map(route => {
-                    const isActive = route.id === selectedRoute;
+                {uniqueRoutes.map(route => {
+                    const isActive = route.route_code === selectedRouteCode;
                     return (
                         <TouchableOpacity
-                            key={route.id}
+                            key={route.route_code}
                             activeOpacity={0.8}
                             onPress={() => {
                                 Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                                onRouteSelect(route.id);
+                                onRouteSelect(route.route_code);
                             }}
                             style={[
                                 styles.card,
@@ -88,15 +98,12 @@ export default function FloatingBusDock({ isVisible, routes, selectedRoute, onRo
                                 isActive && { borderColor: route.color }
                             ]}
                         >
-                            {/* Color Dot + Info */}
                             <View style={styles.cardInfo}>
                                 <View style={[styles.dot, { backgroundColor: isActive ? route.color : '#CBD5E1' }]} />
                                 <Text style={[styles.routeName, isActive && { color: '#0F172A', fontWeight: '700' }]} numberOfLines={1}>
-                                    {route.id} {route.name}
+                                    {route.route_code}
                                 </Text>
                             </View>
-
-                            {/* Badge oculto para ahorrar espacio o en tooltip. Se quita statusText */}
                         </TouchableOpacity>
                     );
                 })}
